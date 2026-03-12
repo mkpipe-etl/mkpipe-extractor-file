@@ -33,6 +33,7 @@ class FileExtractor(BaseExtractor, variant='file'):
         self.credentials_file = connection.credentials_file
         self.catalog = connection.extra.get('catalog', None)
         self.catalog_name = connection.extra.get('catalog_name', 'default')
+        self.catalog_database = connection.extra.get('catalog_database', 'default')
         self.catalog_uri = connection.extra.get('catalog_uri', None)
         self.catalog_warehouse = connection.extra.get('catalog_warehouse', None)
 
@@ -183,7 +184,7 @@ class FileExtractor(BaseExtractor, variant='file'):
         if self.format == 'iceberg':
             if self.catalog:
                 self._configure_catalog(spark)
-            full_table = f'{self.catalog_name}.{table.name}'
+            full_table = f'{self.catalog_name}.{self.catalog_database}.{table.name}'
             df = spark.read.format('iceberg').load(full_table)
         elif self.format == 'delta':
             if self.catalog:
