@@ -51,7 +51,8 @@ connections:
 | `extra.format` | str | `parquet` | File format: `parquet` \| `csv` \| `json` \| `orc` \| `avro` \| `iceberg` \| `delta` |
 | `extra.path` | str | `""` | Base path. Table name appended: `<path>/<table_name>` |
 | `extra.catalog` | str | `null` | Catalog type — **Iceberg**: `glue` \| `nessie` \| `rest` \| `hadoop` · **Delta**: `hms` \| `unity` |
-| `extra.catalog_name` | str | `default` | Spark catalog identifier — table referenced as `<catalog_name>.<db>.<table>` |
+| `extra.catalog_name` | str | `default` | Spark catalog identifier — table referenced as `<catalog_name>.<catalog_database>.<table>` |
+| `extra.catalog_database` | str | `default` | Database/namespace within the catalog (e.g. Glue database name). Table path on S3: `<warehouse>/<catalog_database>.db/<table>/` |
 | `extra.catalog_uri` | str | `null` | Catalog endpoint URI (Nessie: `http://...`, REST: `https://...`, HMS: `thrift://...`) |
 | `extra.catalog_warehouse` | str | `null` | Warehouse root path (S3/GCS/HDFS URI or local path) |
 | `extra.nessie_ref` | str | `main` | Nessie branch or tag to read from |
@@ -75,7 +76,7 @@ For non-catalog formats (`parquet`, `csv`, `json`, `orc`, `avro`, `delta` withou
 2. `storage=s3` and `bucket_name` is set → `s3a://<bucket_name>/<s3_prefix>/<table_name>`
 3. Otherwise → `<table_name>` as-is
 
-For catalog-based formats (`iceberg` or `delta` with `catalog`), the path is ignored — the table is referenced as `<catalog_name>.<table_name>`.
+For catalog-based formats (`iceberg` with `catalog`), the path is ignored — the table is referenced as `<catalog_name>.<catalog_database>.<table_name>`. For `delta` with catalog, it is `<catalog_name>.<table_name>`.
 
 ## Table Parameters
 
@@ -147,22 +148,33 @@ connections:
   source:
     variant: file
     extra:
+      storage: s3
       format: iceberg
       catalog: glue
       catalog_name: my_glue       # Spark catalog identifier
+      catalog_database: my_database   # Glue database name (default: "default")
       catalog_warehouse: s3a://my-bucket/warehouse
     aws_access_key: ${AWS_ACCESS_KEY_ID}
     aws_secret_key: ${AWS_SECRET_ACCESS_KEY}
     region: eu-central-1
+
+settings:
+  spark:
+    extra_config:
+      spark.sql.extensions: "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions"
 
 pipelines:
   - name: glue_pipeline
     source: source
     destination: pg_target
     tables:
-      - name: my_db.my_table      # <glue_database>.<table>
+      - name: my_table
         target_name: stg_my_table
 ```
+
+The table will be read from Glue as `my_glue.my_database.my_table`.
+
+> **Important:** `spark.sql.extensions` must be set in `settings.spark.extra_config` — it is a static Spark config and cannot be modified after SparkSession creation.
 
 ### Apache Iceberg — Nessie Catalog
 
@@ -335,8 +347,8 @@ Automatically applies:
 
 ### Iceberg
 - Requires `catalog` to be configured (see catalog examples above)
-- Table referenced as `<catalog_name>.<db>.<table>` — set `name: db.table` in table config
-- Spark extensions set dynamically at runtime
+- Table referenced as `<catalog_name>.<catalog_database>.<table>` — `catalog_database` is set in connection config
+- Requires `spark.sql.extensions` to be set at SparkSession creation time (see Glue example above)
 
 ### Delta
 - Without `catalog`: path-based read via `spark.read.format('delta').load(path)`
@@ -353,5 +365,19 @@ Automatically applies:
         spark.hadoop.fs.s3a.endpoint: http://minio:9000
         spark.hadoop.fs.s3a.path.style.access: "true"
   ```
-- Iceberg and Delta catalog extensions (`spark.sql.extensions`) are set dynamically at runtime — if your Spark session is pre-created with conflicting config, set them statically in `settings.spark.extra_config` instead
+- **Iceberg requires `spark.sql.extensions`** to be set at SparkSession creation time. Add this to your `settings.spark.extra_config`:
+  ```yaml
+  settings:
+    spark:
+      extra_config:
+        spark.sql.extensions: "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions"
+  ```
+  This is a static Spark config and **cannot** be set after the session is created.
+- **Delta Lake also requires `spark.sql.extensions`** for catalog-based usage. Add to `settings.spark.extra_config`:
+  ```yaml
+  settings:
+    spark:
+      extra_config:
+        spark.sql.extensions: "io.delta.sql.DeltaSparkSessionExtension"
+  ```
 - `iterate_column` supports SQL expressions: e.g. `greatest(cdate, udate)`
