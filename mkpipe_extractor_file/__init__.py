@@ -209,11 +209,22 @@ class FileExtractor(BaseExtractor, variant='file'):
             logger.info({'table': table.target_name, 'status': 'empty_source_initial_load'})
             return ExtractResult(df=df, write_mode='overwrite')
 
+        has_static_bounds = table.filter_lower_bound is not None or table.filter_upper_bound is not None
         write_mode = 'overwrite'
         last_point_value = None
 
         if table.replication_method.value == 'incremental' and table.iterate_column:
-            if last_point:
+            if has_static_bounds:
+                from pyspark.sql import functions as F
+                if table.filter_lower_bound is not None:
+                    df = df.filter(F.col(table.iterate_column) >= table.filter_lower_bound)
+                if table.filter_upper_bound is not None:
+                    df = df.filter(F.col(table.iterate_column) < table.filter_upper_bound)
+                write_mode = 'overwrite'
+                if not df.take(1):
+                    logger.info({'table': table.target_name, 'status': 'no_new_data'})
+                    return ExtractResult(df=None, write_mode=write_mode)
+            elif last_point:
                 from pyspark.sql import functions as F
                 df = df.filter(F.col(table.iterate_column) >= last_point)
                 write_mode = 'append'
