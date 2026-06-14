@@ -220,7 +220,7 @@ class FileExtractor(BaseExtractor, variant='file'):
                     df = df.filter(F.col(table.iterate_column) >= table.filter_lower_bound)
                 if table.filter_upper_bound is not None:
                     df = df.filter(F.col(table.iterate_column) < table.filter_upper_bound)
-                write_mode = 'overwrite'
+                write_mode = 'append'
                 if not df.take(1):
                     logger.info({'table': table.target_name, 'status': 'no_new_data'})
                     return ExtractResult(df=None, write_mode=write_mode)
