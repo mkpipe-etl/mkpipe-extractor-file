@@ -85,7 +85,7 @@ For catalog-based formats (`iceberg` with `catalog`), the path is ignored — th
 | `name` | str | **required** | Source table/path name. For catalogs: `<db>.<table>` |
 | `target_name` | str | **required** | Name of the output dataset in the destination |
 | `replication_method` | str | `full` | `full` or `incremental` |
-| `iterate_column` | str | `null` | Column used for incremental filtering (`>=` comparison) |
+| `iterate_column` | str or list | `null` | Column(s) for incremental filtering. String for single column, list for multi-column OR logic |
 | `iterate_column_type` | str | `null` | Type of `iterate_column`: `datetime` \| `int` |
 | `dedup_columns` | list | `null` | Columns used to generate `mkpipe_id` (xxhash64) for deduplication |
 | `tags` | list | `[]` | Tags for selective pipeline execution (`mkpipe run --tags ...`) |

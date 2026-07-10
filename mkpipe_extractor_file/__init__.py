@@ -210,30 +210,55 @@ class FileExtractor(BaseExtractor, variant='file'):
             return ExtractResult(df=df, write_mode='overwrite')
 
         has_static_bounds = table.filter_lower_bound is not None or table.filter_upper_bound is not None
+        columns = table.iterate_columns
+        is_multi = table.is_multi_iterate_column
         write_mode = 'overwrite'
         last_point_value = None
 
         if table.replication_method.value == 'incremental' and table.iterate_column:
+            from pyspark.sql import functions as F
             if has_static_bounds:
-                from pyspark.sql import functions as F
-                if table.filter_lower_bound is not None:
-                    df = df.filter(F.col(table.iterate_column) >= table.filter_lower_bound)
-                if table.filter_upper_bound is not None:
-                    df = df.filter(F.col(table.iterate_column) < table.filter_upper_bound)
+                if is_multi:
+                    or_cond = None
+                    for col in columns:
+                        col_cond = F.lit(True)
+                        if table.filter_lower_bound is not None:
+                            col_cond = col_cond & (F.col(col) >= table.filter_lower_bound)
+                        if table.filter_upper_bound is not None:
+                            col_cond = col_cond & (F.col(col) < table.filter_upper_bound)
+                        or_cond = col_cond if or_cond is None else (or_cond | col_cond)
+                    df = df.filter(or_cond)
+                else:
+                    if table.filter_lower_bound is not None:
+                        df = df.filter(F.col(columns[0]) >= table.filter_lower_bound)
+                    if table.filter_upper_bound is not None:
+                        df = df.filter(F.col(columns[0]) < table.filter_upper_bound)
                 write_mode = 'append'
                 if not df.take(1):
                     logger.info({'table': table.target_name, 'status': 'no_new_data'})
                     return ExtractResult(df=None, write_mode=write_mode)
             elif last_point:
-                from pyspark.sql import functions as F
-                df = df.filter(F.col(table.iterate_column) >= last_point)
+                if is_multi:
+                    or_cond = None
+                    for col in columns:
+                        cond = F.col(col) >= last_point
+                        or_cond = cond if or_cond is None else (or_cond | cond)
+                    df = df.filter(or_cond)
+                else:
+                    df = df.filter(F.col(columns[0]) >= last_point)
                 write_mode = 'append'
                 if not df.take(1):
                     logger.info({'table': table.target_name, 'status': 'no_new_data'})
                     return ExtractResult(df=None, write_mode=write_mode)
-            row = df.agg({table.iterate_column: 'max'}).first()
-            if row and row[0] is not None:
-                last_point_value = str(row[0])
+            if is_multi:
+                max_expr = F.greatest(*[F.max(F.col(c)) for c in columns])
+                row = df.select(max_expr.alias('max_val')).first()
+                if row and row['max_val'] is not None:
+                    last_point_value = str(row['max_val'])
+            else:
+                row = df.agg({columns[0]: 'max'}).first()
+                if row and row[0] is not None:
+                    last_point_value = str(row[0])
 
         logger.info({
             'table': table.target_name,
